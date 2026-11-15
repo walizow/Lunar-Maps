@@ -6,6 +6,12 @@
 
 [Judging and verification guide](JUDGES.md) · [Mission workspace and design notes](MISSION-WORKSPACE.md)
 
+## Watch the 30-second demo
+
+[![Lunar Maps demo — click to watch the full 30-second video](videos/lunar-maps-preview.gif)](https://github.com/walizow/Lunar-Maps/blob/main/videos/lunar-maps-demo.mp4)
+
+**[Watch or download the full video](https://github.com/walizow/Lunar-Maps/blob/main/videos/lunar-maps-demo.mp4)** · 30 seconds · Narration, music, and captions
+
 ## Why we’re building this
 
 At the lunar south pole, the Sun and Earth can appear close to the horizon. A ridge in the wrong direction can interrupt sunlight or hide Earth. A solar-powered lander may have to draw on its battery during darkness, and a mission team may have to wait for another chance to send commands or receive data. A postponed landing can move the entire operations window relative to those events.
