@@ -1,0 +1,1 @@
+{"S": {"size": 2048, "radius_km": 457.44, "south": true, "elevMin": -6300.0, "elevMax": 4500.0}, "N": {"size": 2048, "radius_km": 457.44, "south": false, "elevMin": -3600.0, "elevMax": 1500.0}, "G": {"width": 3072, "height": 1536, "elevMin": -5900.0, "elevMax": 6400.0}}
