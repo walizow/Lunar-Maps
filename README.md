@@ -70,8 +70,9 @@ ephemeris, which is within about 0.03 degrees of Horizons.
 
 ## Data sources
 
-- Terrain and long-term illumination maps: NASA LRO LOLA (PDS; Mazarico et al. illumination products).
-- Imagery: NASA LROC WAC global and polar mosaics (public domain).
-- Sun and Earth directions: NASA JPL Horizons (hourly tables, 2026-2028) and Meeus, "Astronomical Algorithms".
-- Feature names: IAU Gazetteer of Planetary Nomenclature. Human-made objects: LROC team.
-- Artemis III candidate regions: NASA.
+- Terrain and long-term illumination maps: NASA LRO LOLA (PDS; Mazarico et al. illumination products) - https://pgda.gsfc.nasa.gov/products/69
+- Imagery: NASA LROC WAC global and polar mosaics - https://data.lroc.im-ldi.com/lroc/rdr_product_select? 
+- Sun and Earth directions: calculated using NASA JPL Horizons API - https://ssd-api.jpl.nasa.gov/doc/horizons.html 
+- Feature names: IAU Gazetteer of Planetary Nomenclature Moon GIS Download - https://planetarynames.wr.usgs.gov/Page/MOON/target 
+- Human-made objects: LROC Anthropogenic Features on the Moon Shapefiles - https://data.lroc.im-ldi.com/lroc/view_rdr/SHAPEFILE_ANTHROPOGENIC_OBJECTS
+- Artemis III candidate regions: LROC Quickmap Layer GeoJSON - A3: Candidate Landing Regions 2024 - https://quickmap.lroc.asu.edu/
