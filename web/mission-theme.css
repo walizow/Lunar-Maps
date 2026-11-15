@@ -1,0 +1,48 @@
+:root {
+  --flight-bg: #080c14;
+  --flight-panel: #101923;
+  --flight-surface: #172533;
+  --flight-line: #2a3b4d;
+  --flight-ink: #f0f6fc;
+  --flight-muted: #a1b5c9;
+  --flight-mint: #a2f2d9;
+  --flight-blue: #84c9ff;
+  --flight-sun: #ffd38b;
+  --flight-warn: #ffa99a;
+  --flight-display: "Barlow Semi Condensed", "Bahnschrift", "Segoe UI", system-ui, sans-serif;
+  --flight-font: Inter, "Segoe UI", system-ui, sans-serif;
+  --flight-mono: "Space Mono", ui-monospace, Consolas, monospace;
+}
+
+.brand-orbit {
+  width: 21px;
+  height: 21px;
+  flex: none;
+  display: inline-block;
+  border: 1px solid var(--flight-mint);
+  border-radius: 50%;
+  position: relative;
+  vertical-align: middle;
+}
+.brand-orbit::after {
+  position: absolute;
+  content: "";
+  left: -5px;
+  top: 7px;
+  width: 28px;
+  height: 6px;
+  border: 1px solid var(--flight-mint);
+  border-radius: 50%;
+  transform: rotate(-25deg);
+}
+.wordmark {
+  display: inline-flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--flight-ink);
+  font-family: var(--flight-mono);
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-decoration: none;
+  white-space: nowrap;
+}

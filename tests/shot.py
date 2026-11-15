@@ -15,7 +15,7 @@ try:
             pg.on("console", lambda m: print("console:", m.type, m.text) if m.type in ("error", "warning") else None)
             pg.on("pageerror", lambda e: print("PAGE ERROR:", e))
             pg.on("request", lambda r: ext.append(r.url) if "localhost:8765" not in r.url else None)
-            t = time.time(); pg.goto("http://localhost:8765/index.html"); pg.wait_for_selector("#nowCards .card", timeout=20000)
+            t = time.time(); pg.goto("http://localhost:8765/navigator.html"); pg.wait_for_selector("#nowCards .card", timeout=20000)
             print(theme, "first usable in %.1f s; external requests: %s" % (time.time() - t, ext or "none"))
             pg.wait_for_timeout(300)
             pg.screenshot(path=f"{out}/{theme}_full.png", full_page=True)

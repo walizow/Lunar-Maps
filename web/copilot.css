@@ -1,0 +1,38 @@
+#copilot {
+  position: sticky;
+  top: 16px;
+  padding: 16px;
+  align-self: start;
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+.copilot-heading { justify-content: space-between; }
+.copilot-heading h2 { color: var(--ink); font-size: 21px; text-transform: none; letter-spacing: -.02em; }
+#copilotMode { color: var(--accent); }
+#copilotForm { display: grid; gap: 6px; }
+.copilot-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.copilot-input input { min-width: 0; background: var(--bg); }
+.copilot-prompts { display: grid; gap: 6px; }
+.copilot-prompts button { min-height: 38px; text-align: left; padding-inline: 10px; background: var(--soft); }
+.copilot-result { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px; overflow-wrap: anywhere; }
+.copilot-result h3 { font-size: 16px; color: var(--earth); text-transform: none; letter-spacing: 0; margin-top: 5px; }
+.copilot-result p { margin: 6px 0; }
+.copilot-result #copilotSource { margin-top: 0; }
+#copilotStatus:empty, #voiceStatus:empty, #copilotEvidence:empty { display: none; }
+#copilotAudio { margin-top: 8px; width: 100%; }
+.copilot-open .mission-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 350px); gap: 0 16px; }
+.copilot-open .mission-intro, .copilot-open .timebar { grid-column: 1 / -1; }
+.copilot-open .mission-stage { min-width: 0; }
+.copilot-open .explore-grid { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 760px) {
+  .copilot-open .mission-workspace { display: block; padding-bottom: 48dvh; }
+  #copilot { position: fixed; inset: auto 12px 12px; z-index: 10; max-height: 47dvh; box-shadow: 0 6px 28px #000a; }
+  .copilot-prompts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .copilot-prompts button { line-height: 1.2; }
+}

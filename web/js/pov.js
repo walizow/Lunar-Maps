@@ -19,6 +19,8 @@ const Pov = (() => {
   let gl, cv, ov, prog, hooks, ready = false, failed = null, pending = false;
   const cam = { az: 0, el: 2, fov: 28 };                   // looking direction (compass bearing, elevation) and vertical field of view
   const opt = { names: true, skyline: false, stars: true };
+  let inspected = null;
+  let trialMask = null;
   let site = null, mast = 2, sun = null, earth = null, starSpin = 0, tile = null, features = [], mask = null;
   const tex = {};
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -256,21 +258,53 @@ void main() {
   }
   function drawOverlay() {
     const b = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    if (!b.width || !b.height) return;
     if (ov.width !== Math.round(b.width * dpr) || ov.height !== Math.round(b.height * dpr)) { ov.width = Math.round(b.width * dpr); ov.height = Math.round(b.height * dpr); }
     const c = ov.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, b.width, b.height);
     if (!sun) return;
     c.textBaseline = 'middle'; c.textAlign = 'center';
     const text = (s, x, y, col) => { c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.8)'; c.strokeText(s, x, y); c.fillStyle = col; c.fillText(s, x, y); };
     const inView = p => p && p[0] > -40 && p[0] < b.width + 40 && p[1] > -40 && p[1] < b.height + 40;
-    // the precomputed skyline (the one used for all the numbers), as a cross-check on the 3D terrain
-    if (opt.skyline && mask) { c.strokeStyle = 'rgba(80,220,255,.9)'; c.lineWidth = 1.2; c.beginPath(); let pen = false;
-      for (let a = cam.az - 100; a <= cam.az + 100; a += 0.5) { const p = project(a, Engine.maskAt(mask, a)); if (!inView(p)) { pen = false; continue; } pen ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); pen = true; } c.stroke(); }
+    // Draw the numerical horizon independently of the rendered terrain mesh.
+    function drawSkyline(skyline, color, dash) {
+      c.strokeStyle = color;
+      c.lineWidth = 1.2;
+      c.setLineDash(dash);
+      c.beginPath();
+      let started = false;
+      for (let az = cam.az - 100; az <= cam.az + 100; az += 0.5) {
+        const point = project(az, Engine.maskAt(skyline, az));
+        if (!inView(point)) { started = false; continue; }
+        if (started) c.lineTo(...point);
+        else c.moveTo(...point);
+        started = true;
+      }
+      c.stroke();
+      c.setLineDash([]);
+    }
+    if ((opt.skyline || inspected) && mask) drawSkyline(mask, '#A6B8C5', []);
+    if (trialMask) drawSkyline(trialMask, css('--accent'), [5, 4]);
     // Sun and Earth markers (so they can be found when small, or located when hidden behind terrain)
     c.font = '600 12px ' + css('--font');
     for (const [body, col, name] of [[sun, css('--sun'), 'Sun'], [earth, css('--earth'), 'Earth']]) { const p = project(body.az, body.el); if (!inView(p)) continue;
       const rr = Math.max(8, body.radius * D2R / Math.tan(cam.fov * D2R / 2) * b.height / 2 + 6);
       c.strokeStyle = col; c.lineWidth = 1.5; c.setLineDash(body.up ? [] : [4, 4]); c.beginPath(); c.arc(p[0], p[1], rr, 0, 7); c.stroke(); c.setLineDash([]);
       text(name + (body.up ? '' : ' (behind terrain)'), p[0], p[1] - rr - 10, col); }
+    if (inspected && mask) {
+      const body = inspected === 'earth' ? earth : sun;
+      const bodyPoint = project(body.az, body.el);
+      const skylinePoint = project(body.az, Engine.maskAt(mask, body.az));
+      if (inView(bodyPoint) && inView(skylinePoint)) {
+        c.strokeStyle = inspected === 'earth' ? css('--earth') : css('--sun');
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(...skylinePoint);
+        c.lineTo(...bodyPoint);
+        c.moveTo(skylinePoint[0] - 7, skylinePoint[1]);
+        c.lineTo(skylinePoint[0] + 7, skylinePoint[1]);
+        c.stroke();
+      }
+    }
     // names of features in view, hung just above the skyline in their direction
     if (opt.names && mask) { c.font = '11.5px ' + css('--font'); const taken = []; let n = 0;
       for (const ft of features) { if (n >= 14) break;
@@ -304,6 +338,11 @@ void main() {
   // ------------------------------------------------------------ interaction
   let flyId = 0;
   function lookAt(az, el) {
+    if (!ready) {
+      cam.az = Astro.norm(az);
+      cam.el = el;
+      return;
+    }
     const from = { az: cam.az, el: cam.el }, da = ((az - from.az + 540) % 360) - 180, id = ++flyId, t0 = performance.now();
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { cam.az = Astro.norm(az); cam.el = el; render(); return; }
     const step = tn => { if (id !== flyId) return; const u = Math.min(1, (tn - t0) / 700), e = u * u * (3 - 2 * u); cam.az = Astro.norm(from.az + da * e); cam.el = from.el + (el - from.el) * e; drawGL(); drawOverlay(); if (u < 1) requestAnimationFrame(step); };
@@ -333,6 +372,8 @@ void main() {
     startAt(s, m, mk) { site = s; mast = m; mask = mk; },
     async setSite(s, mk) { site = s; mask = mk; if (!ready) return; hooks.onStatus('Loading terrain for this site…'); try { await loadTile(s); hooks.onStatus(''); } catch (e) { hooks.onStatus('Terrain for this site could not be loaded (' + e.message + ').'); } render(); },
     setMast(m, mk) { mast = m; mask = mk; render(); },
+    setInspection(body) { inspected = body; render(); },
+    setTrialMask(skyline) { trialMask = skyline; render(); },
     // sun / earth: { az, el, radius, up } in degrees; spin: slow turn of the star field (degrees)
     setSky(s, e, spin) { const first = !sun; sun = s; earth = e; starSpin = spin; if (first && ready) { cam.az = s.up ? s.az : e.az; cam.el = 3; } render(); },
     face(which) { const b = which === 'sun' ? sun : earth; if (b) lookAt(b.az, Math.max(-20, Math.min(60, b.el + (cam.fov > 30 ? 4 : 0)))); },

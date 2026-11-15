@@ -1,527 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lunar Landing Site Navigator</title>
-<link rel="icon" href="data:,">
-<style>
-/* Layout idea: a mission-planning console. Controls in a left rail, one shared
-   time bar across the top of the workspace, then sky view, timelines, power. */
-:root {
-  --bg: #e9ecef; --panel: #ffffff; --ink: #17212c; --muted: #566473; --line: #d3d9e0; --soft: #f3f5f7;
-  --sun: #b86e00; --earth: #0068a8; --green: #00735a; --warn: #b3261e; --accent: #3a4f8f;
-  --dsn1: #a8508a; --dsn2: #c2500a; --dsn3: #2a86c2;
-  --sky: #070b12; --ground: #4b4f56; --ground-edge: #9aa1ab;       /* the lunar sky is black in any theme */
-  --font: "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --display: "Bahnschrift", "DIN Alternate", "Avenir Next Condensed", "Segoe UI", Arial, sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0b0f15; --panel: #141a23; --ink: #e7ebf1; --muted: #98a5b5; --line: #2a3443; --soft: #1b232e;
-    --sun: #f2ab30; --earth: #5cb8ee; --green: #33c9a2; --warn: #ff7a70; --accent: #9db2ff;
-    --dsn1: #e08cc2; --dsn2: #f08a4b; --dsn3: #6cc0f5;
-  }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0b0f15; --panel: #141a23; --ink: #e7ebf1; --muted: #98a5b5; --line: #2a3443; --soft: #1b232e;
-  --sun: #f2ab30; --earth: #5cb8ee; --green: #33c9a2; --warn: #ff7a70; --accent: #9db2ff;
-  --dsn1: #e08cc2; --dsn2: #f08a4b; --dsn3: #6cc0f5;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); }
-h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; letter-spacing: .01em; }
-h1 { font-size: 22px; font-weight: 600; }
-h2 { font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-button, select, input { font: inherit; color: inherit; }
-button, select, input[type=number], input[type=datetime-local], input[type=text] {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-height: 30px;
-}
-button { cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button[aria-pressed="true"], button.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-
-header.top { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
-header.top p { margin: 0; color: var(--muted); flex: 1 1 320px; max-width: 70ch; }
-.seg { display: inline-flex; }
-.seg button { border-radius: 0; margin-left: -1px; }
-.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
-.seg button:last-child { border-radius: 0 6px 6px 0; }
-
-.jump { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 20px 0; }
-.jump button { min-height: 26px; padding: 2px 10px; border-radius: 99px; font-size: 12.5px; }
-.panel h2 { scroll-margin-top: 190px; }
-.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; padding: 16px 20px 40px; align-items: start; }
-@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); padding: 12px 16px 32px; } }
-.rail, .work { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.panel > header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
-.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.field { display: grid; grid-template-columns: 1fr 92px; gap: 6px 8px; align-items: center; }
-.field label { color: var(--muted); }
-.field input, .field select { width: 100%; }
-select.wide { width: 100%; }
-.hint { color: var(--muted); font-size: 12.5px; margin: 0; }
-.info { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12.5px; }
-.info dt { color: var(--muted); } .info dt.tip { text-decoration: underline dotted; cursor: help; } .info dd { margin: 0; overflow-wrap: anywhere; }
-.pill { display: inline-block; border-radius: 99px; padding: 1px 8px; font-size: 12px; border: 1px solid var(--line); background: var(--soft); }
-.pill i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
-.pill.off { opacity: .6; }
-.pill.good { border-color: var(--green); color: var(--green); } .pill.bad { border-color: var(--warn); color: var(--warn); }
-
-/* The time bar stays on screen while scrolling, so it is set apart from the panels it floats over:
-   an accent border and top stripe, a tinted background and a drop shadow. */
-.timebar { position: sticky; top: 6px; z-index: 5; border: 1.5px solid var(--accent); border-top-width: 5px;
-  background: color-mix(in srgb, var(--panel) 86%, var(--accent)); box-shadow: 0 8px 22px rgba(0, 0, 0, .38), 0 0 0 4px var(--bg); }
-.timebar .tag { font: 600 12px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--panel); background: var(--accent); border-radius: 4px; padding: 2px 8px; }
-.timebar input[type=range] { width: 100%; accent-color: var(--accent); }
-.timebar .now { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
-
-.split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 1150px) { .split { grid-template-columns: minmax(0, 1fr); } }
-table.cmp { border-collapse: collapse; width: 100%; font-size: 13px; }
-table.cmp th, table.cmp td { padding: 5px 10px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: top; font-variant-numeric: tabular-nums; }
-table.cmp th:first-child, table.cmp td:first-child { text-align: left; color: var(--muted); font-weight: 400; white-space: nowrap; }
-table.cmp thead th { font-weight: 600; min-width: 150px; }
-table.cmp thead small { display: block; font-weight: 400; color: var(--muted); }
-table.cmp td.best { outline: 2px solid var(--green); outline-offset: -3px; border-radius: 6px; font-weight: 600; }
-table.cmp button { min-height: 24px; padding: 1px 8px; font-size: 12px; margin-left: 4px; }
-.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 1150px) { .split.even { grid-template-columns: minmax(0, 1fr); } }
-details.about { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
-details.about summary { cursor: pointer; font-weight: 600; color: var(--accent); }
-details.about p { margin: 8px 0 4px; max-width: 75ch; } details.about ul { margin: 4px 0; padding-left: 20px; max-width: 75ch; }
-table.raw.about-t td, table.raw.about-t th { text-align: left; vertical-align: top; }
-table.raw.about-t td:first-child { color: var(--ink); } table.raw.about-t th { color: var(--muted); font-weight: 600; }
-dl.goals { margin: 6px 0 0; display: grid; gap: 4px; }
-dl.goals dt { font-weight: 600; } dl.goals dd { margin: 0 0 4px; }
-#findCv { height: 160px; background: var(--soft); cursor: pointer; }
-#cmpTl { height: 120px; }
-canvas { display: block; width: 100%; border-radius: 8px; touch-action: none; }
-#scale { height: 34px; cursor: pointer; margin-top: -6px; border-radius: 0; }
-.timebar input[type=range] { margin: 0; }
-.stack { position: relative; }
-#pov { height: 480px; background: #000; cursor: grab; }
-#povOv { position: absolute; inset: 0; height: 100%; pointer-events: none; }
-#globe { height: 600px; background: #030407; cursor: grab; }
-#globeOv { position: absolute; inset: 0; height: 100%; pointer-events: none; }
-#map { height: 560px; background: #05070b; cursor: grab; }
-#map:active { cursor: grabbing; }
-.results { position: absolute; top: 100%; left: 0; right: 0; z-index: 6; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: none; max-height: 260px; overflow: auto; }
-.results button { display: block; width: 100%; text-align: left; border: 0; border-radius: 0; background: none; }
-.results button:hover, .results button:focus { background: var(--soft); }
-#sky { background: var(--sky); height: 360px; cursor: crosshair; }
-.flag { border: 1px solid var(--line); border-left-width: 4px; border-radius: 6px; padding: 7px 10px; font-size: 13px; background: var(--soft); }
-.flag.bad { border-color: var(--warn); } .flag.bad b { color: var(--warn); }
-.flag.good { border-color: var(--green); } .flag.good b { color: var(--green); }
-.flag button { margin-left: 6px; min-height: 26px; padding: 2px 8px; }
-fieldset.checks { border: 0; padding: 0; margin: 0; gap: 6px 16px; }
-fieldset.checks legend { float: left; margin-right: 12px; color: var(--muted); font-size: 12.5px; padding: 0; }
-fieldset.checks label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
-fieldset.checks input { accent-color: var(--accent); width: 15px; height: 15px; }
-#tl { height: 408px; cursor: crosshair; }
-#lander { height: 240px; background: var(--soft); }
-.caption { color: var(--muted); font-size: 12.5px; margin: 0; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); }
-.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
-
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.card { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; border-left: 4px solid var(--line); min-width: 0; }
-.card.sun { border-left-color: var(--sun); } .card.earth { border-left-color: var(--earth); }
-.card.link { border-left-color: var(--green); } .card.pow { border-left-color: var(--accent); }
-.card .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; cursor: help; }
-.card .v { font: 600 22px/1.2 var(--display); font-variant-numeric: tabular-nums; margin: 2px 0; overflow-wrap: anywhere; }
-.card .s { font-size: 12.5px; color: var(--muted); }
-.card .s b { color: var(--ink); font-weight: 600; }
-.card.alert { border-left-color: var(--warn); } .card.alert .v { color: var(--warn); }
-
-.guide { border-left: 3px solid var(--accent); background: var(--soft); padding: 8px 12px; border-radius: 0 8px 8px 0; font-size: 13px; max-width: 78ch; }
-.guide b { font-family: var(--display); }
-body.expert .guide, body.expert .guide-block, body:not(.expert) .expert-only { display: none; }
-table.raw { border-collapse: collapse; font-size: 12.5px; width: 100%; }
-table.raw td, table.raw th { padding: 2px 8px; border-bottom: 1px solid var(--line); text-align: right; }
-table.raw th:first-child, table.raw td:first-child { text-align: left; color: var(--muted); font-weight: 400; }
-.scroll { overflow-x: auto; }
-#tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--panel); padding: 5px 8px; border-radius: 6px; font-size: 12px; max-width: 260px; z-index: 20; display: none; white-space: pre-line; }
-.bars { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 8px; align-items: center; font-size: 12.5px; }
-.bars .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
-.bars .bar i { display: block; height: 100%; background: var(--sun); }
-#status { color: var(--muted); font-size: 12.5px; }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore the Moon's south pole and compare how local terrain and arrival time affect sunlight, power, and potential contact with Earth.">
+  <meta name="theme-color" content="#080c14">
+  <title>Lunar Maps · Lunar Landing Site Navigator</title>
+  <link rel="stylesheet" href="mission-theme.css">
+  <link rel="stylesheet" href="landing.css">
+  <script src="js/landing.js"></script>
 </head>
-<body>
-<header class="top">
-  <h1>Lunar Landing Site Navigator</h1>
-  <p>Where are the Sun and Earth above the local horizon, when is there power, and when can the lander talk to Earth? Pick a site and a date.</p>
-  <div class="seg" role="group" aria-label="Level of detail">
-    <button id="modeGuide" aria-pressed="true" title="Plain-language explanations next to each panel">Guide</button>
-    <button id="modeExpert" aria-pressed="false" title="Raw numbers, no explanations">Expert</button>
-  </div>
-</header>
-
-<nav class="jump" aria-label="Jump to a section">
-  <span class="hint">Jump to</span>
-  <button data-go="hSky">Sky view</button><button data-go="hMap">2D map</button><button data-go="hGlobe">3D map</button><button data-go="hPov">Lander view</button>
-  <button data-go="hTl">Timelines</button><button data-go="hWin">Window summary</button><button data-go="hCmp">Compare</button><button data-go="hFind">Find a window</button><button data-go="hShare">Share and export</button>
-</nav>
-<div class="layout">
-  <!-- ============================ left rail: what and where ============================ -->
-  <div class="rail">
-    <section class="panel" aria-labelledby="hSite">
-      <h2 id="hSite">Landing site</h2>
-      <select id="site" class="wide" aria-label="Preset landing site"></select>
-      <div class="row">
-        <input id="cLat" type="number" step="0.001" min="-90" max="90" placeholder="lat" aria-label="Custom latitude, degrees north" style="width:84px">
-        <input id="cLon" type="number" step="0.001" min="-180" max="360" placeholder="lon E" aria-label="Custom longitude, degrees east" style="width:84px">
-        <button id="cGo" title="Trace the horizon for these coordinates (downloads about 13 MB of terrain the first time)">Use custom</button>
-      </div>
-      <p class="hint">Custom coordinates: latitude north-positive, longitude east-positive. South pole sites are negative latitudes.</p>
-      <dl class="info" id="siteInfo"></dl>
-      <div id="status" role="status"></div>
-    </section>
-
-    <section class="panel" aria-labelledby="hSet">
-      <h2 id="hSet">Assumptions</h2>
-      <div class="field">
-        <label for="mast" title="Height of the solar array / antenna above the ground. A taller mast sees over nearby terrain.">Mast height (m, 2 to 30)</label>
-        <input id="mast" type="number" min="2" max="30" step="1" value="2" list="mastList">
-        <datalist id="mastList"><option value="2"></option><option value="3"></option><option value="4"></option><option value="6"></option><option value="8"></option><option value="10"></option><option value="15"></option><option value="20"></option><option value="25"></option><option value="30"></option></datalist>
-        <p class="hint" style="grid-column:1/-1">Typical: 2 m body-mounted array or small rover antenna, 4 m top of a tall lander, 10 to 20 m deployable solar mast, 30 m large power tower. Exact at 2, 3, 4, 6, 8, 10, 15, 20, 25 and 30 m; heights in between are blended from the two nearest.</p>
-        <label for="earthEdge" title="How much of Earth's disc must clear the terrain to count as visible.">Earth counts as visible when</label>
-        <select id="earthEdge"><option value="0">centre is up</option><option value="1">any part is up</option><option value="-1">whole disc is up</option></select>
-        <label for="dsnEl" title="A Deep Space Network dish can talk when the Moon is at least this high in its sky. 10 degrees is this app's assumption.">DSN minimum Moon elevation (°)</label>
-        <input id="dsnEl" type="number" min="0" max="45" step="1" value="10">
-      </div>
-    </section>
-
-    <section class="panel" aria-labelledby="hLander">
-      <h2 id="hLander">Lander and power</h2>
-      <select id="preset" class="wide" aria-label="Lander layout preset"></select>
-      <p class="hint" id="presetNote"></p>
-      <!-- live drawing of the chosen layout: lander, panels, compass and Sun direction -->
-      <div class="row" style="justify-content:space-between">
-        <h3 id="hArr">Layout and Sun right now</h3>
-        <button id="topDown" aria-pressed="false" title="Switch between a 3D view and a view from directly above">Top-down</button>
-      </div>
-      <canvas id="lander" role="img" aria-label="Drawing of the lander with its solar panels, compass directions and the direction of the Sun; panels are coloured by current power output"></canvas>
-      <div class="bars" id="panelBars"></div>
-      <p class="caption">Panels are coloured by output at the current time (dark = none, yellow = full). The arrow comes from the Sun. Change heading, tilt or panel count below and the drawing follows. Layouts are approximations; panels shading each other is not modelled.</p>
-      <div class="field" id="bodyFields">
-        <label for="heading" title="Compass direction that side panel 1 faces.">Heading of side 1 (° from north)</label>
-        <input id="heading" type="number" min="0" max="359" step="5" value="0">
-        <label for="tilt" title="How far the lander leans from upright, for example after landing on a slope.">Tilt (°)</label>
-        <input id="tilt" type="number" min="0" max="45" step="1" value="0">
-        <label for="tiltDir" title="Compass direction the lander leans toward.">Leans toward (° from north)</label>
-        <input id="tiltDir" type="number" min="0" max="359" step="5" value="0">
-        <label for="sides">Side panels</label>
-        <input id="sides" type="number" min="2" max="6" step="1" value="3">
-        <label for="sideArea">Area per side panel (m²)</label>
-        <input id="sideArea" type="number" min="0.1" max="20" step="0.1" value="1.3">
-        <label for="topArea">Top deck panel area (m²)</label>
-        <input id="topArea" type="number" min="0" max="20" step="0.1" value="1">
-      </div>
-      <div class="field" id="mastFields">
-        <label for="mastArea">Mast array area (m²)</label>
-        <input id="mastArea" type="number" min="0.5" max="100" step="0.5" value="4">
-      </div>
-      <div class="field">
-        <label for="eff" title="Fraction of sunlight turned into electricity.">Cell efficiency (%)</label>
-        <input id="eff" type="number" min="5" max="40" step="1" value="28">
-        <label for="load" title="Average electrical power the lander uses.">Load (W)</label>
-        <input id="load" type="number" min="0" max="20000" step="10" value="200">
-        <label for="batt" title="Usable battery capacity. The battery starts the window full.">Battery (Wh)</label>
-        <input id="batt" type="number" min="0" max="500000" step="100" value="1500">
-      </div>
-    </section>
-  </div>
-
-  <!-- ============================ workspace ============================ -->
-  <div class="work">
-    <section class="panel timebar" aria-label="Time controls">
-      <div class="row">
-        <span class="tag">Time</span>
-        <label for="start">Window starts (UTC)</label>
-        <input id="start" type="datetime-local">
-        <label for="winN">Length</label>
-        <input id="winN" type="number" min="0.1" step="any" value="1" style="width:76px" aria-label="Window length, number">
-        <select id="winU" aria-label="Window length, unit">
-          <option value="1">hours</option><option value="24">days</option><option value="708.72" selected>lunar days (29.53 d)</option><option value="8766">years</option>
-        </select>
-        <button id="today" title="Start the window at today's date">Today</button>
-        <span style="flex:1"></span>
-        <span class="now" id="nowText" aria-live="off"></span>
-      </div>
-      <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Time within the window">
-      <canvas id="scale" role="img" aria-label="Date scale for the time slider. Click or drag to set the time."></canvas>
-      <div class="row">
-        <button id="play" title="Play or pause (Space)">▶ Play</button>
-        <select id="speed" aria-label="Playback speed">
-          <option value="1">1 hour per second</option><option value="6">6 hours per second</option>
-          <option value="24" selected>1 day per second</option><option value="120">5 days per second</option>
-        </select>
-        <span style="flex:1"></span>
-        <span class="hint">Jump to next:</span>
-        <button data-jump="sunrise">Sunrise</button><button data-jump="sunset">Sunset</button>
-        <button data-jump="earthrise">Earthrise</button><button data-jump="earthset">Earthset</button>
-      </div>
-    </section>
-
-    <div class="split">
-      <section class="panel" aria-labelledby="hSky">
-        <header>
-          <h2 id="hSky">Sky view</h2>
-          <div class="seg" role="group" aria-label="Sky view layout">
-            <button id="skyPano" title="Horizon unrolled into a strip (D to switch)">Panorama</button>
-            <button id="skyDial" title="The same sky as a circle, looking straight up">Dial</button>
-          </div>
-        </header>
-        <canvas id="sky" role="img" aria-label="Sun and Earth positions against the terrain skyline"></canvas>
-        <div class="legend">
-          <span><i style="background:var(--sun)"></i>Sun path (faint where terrain hides it)</span>
-          <span><i style="background:var(--earth)"></i>Earth path</span>
-          <span><i style="background:var(--ground-edge)"></i>Terrain skyline</span>
-        </div>
-        <div class="row" id="skyDsn" role="status" aria-label="Deep Space Network complexes facing the Moon right now"></div>
-        <p class="caption" id="skyCaption"></p>
-        <div class="guide" id="skyGuide"></div>
-      </section>
-
-      <section class="panel" aria-labelledby="hNow">
-        <h2 id="hNow">At this moment</h2>
-        <div class="cards" id="nowCards"></div>
-        <div class="expert-only scroll"><table class="raw num" id="rawNow"></table></div>
-      </section>
+<body class="landing">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="landing-header">
+    <div class="page-width landing-nav">
+      <a class="wordmark" href="./"><i class="brand-orbit" aria-hidden="true"></i> LUNAR MAPS</a>
+      <nav aria-label="Project"><a href="#why">Why it matters</a><a href="#demos">Demos</a><a href="#data">NASA data</a></nav>
+      <a class="flight-button nav-launch" href="navigator.html">Launch navigator <span aria-hidden="true">↗</span></a>
     </div>
-
-    <section class="panel" aria-labelledby="hMap">
-      <header>
-        <h2 id="hMap">2D map</h2>
-        <div class="row">
-          <label for="mapView">View</label>
-          <select id="mapView"><option value="S">South pole</option><option value="N">North pole</option><option value="G">Whole Moon</option></select>
-          <label for="mapBase">Base</label>
-          <select id="mapBase"><option value="wac">Photo (LROC WAC)</option><option value="relief">Shaded relief</option><option value="elev">Elevation colours</option></select>
-          <div class="seg" role="group" aria-label="Zoom">
-            <button id="mapOut" title="Zoom out (− key)">−</button><button id="mapIn" title="Zoom in (+ key)">+</button><button id="mapFit" title="Show the whole map">Whole map</button><button id="mapSite" title="Centre on the selected site">To site</button>
-          </div>
+  </header>
+  <main id="main">
+    <section class="hero page-width" aria-labelledby="landing-title">
+      <div class="hero-copy">
+        <p class="flight-label">Lunar Landing Site Navigator</p>
+        <h1 id="landing-title">Plan for light.<br><span>Stay in contact.</span></h1>
+        <p class="hero-subtitle">Explore the Moon’s south pole. Compare landing sites and arrival dates to see how terrain changes sunlight, power, and potential contact with Earth.</p>
+        <div class="landing-actions">
+          <a class="flight-button" href="navigator.html">Launch 3D navigator <span aria-hidden="true">↗</span></a>
+          <a class="flight-button secondary" href="navigator.html?demo=earthset">Try the Earthset demo</a>
         </div>
-      </header>
-      <fieldset class="row checks" id="mapChecks">
-        <legend>Show</legend>
-        <label title="NASA long-term average: share of time the Sun is visible (polar maps)"><input type="checkbox" id="mSun" data-k="sun"> Sun visibility</label>
-        <label title="NASA long-term average: share of time Earth is visible (polar maps)"><input type="checkbox" id="mEarth" data-k="earth"> Earth visibility</label>
-        <label title="Places the Sun never reaches (polar maps)"><input type="checkbox" id="mPsr" data-k="psr" checked> Permanent shadow</label>
-        <label><input type="checkbox" id="mReg" data-k="regions" checked> Artemis III regions</label>
-        <label title="Landers, rovers and impact sites located by the LROC team"><input type="checkbox" id="mObj" data-k="objects" checked> Human-made objects</label>
-        <label><input type="checkbox" id="mNames" data-k="names" checked> Names</label>
-        <label><input type="checkbox" id="mGrid" data-k="grid" checked> Grid</label>
-        <label><input type="checkbox" id="mSites" data-k="sites" checked> Preset sites</label>
-        <label for="mOpac" style="margin-left:8px">Overlay strength</label><input type="range" id="mOpac" min="20" max="100" value="65" style="width:90px">
-      </fieldset>
-      <div class="row" style="position:relative">
-        <input id="mapSearch" type="text" placeholder="Find a crater, mountain or other named feature" aria-label="Search named features" style="flex:1; min-width:0" autocomplete="off">
-        <div id="mapResults" class="results" role="listbox"></div>
       </div>
-      <canvas id="map" tabindex="0" role="img" aria-label="Map of the Moon. Drag to move, double-click or use the + and − keys to zoom, click to place a custom site."></canvas>
-      <div class="row">
-        <span class="num hint" id="mapRead" style="flex:1; min-width:200px">Move over the map to read coordinates.</span>
-        <button id="mapUse" disabled title="Trace the horizon at the pin and make it the active site">Use pinned point as custom site</button>
+      <figure class="moon-preview">
+        <div class="frame-label"><span><i aria-hidden="true"></i> Moon / Near side</span><span>3D navigator capture</span></div>
+        <img src="data/landing-moon.jpg" width="594" height="526" alt="Near-side Moon rendered by Lunar Maps using NASA LROC terrain imagery, with Earth and Sun overhead directions marked.">
+        <figcaption>NASA Lunar Reconnaissance Orbiter · Wide Angle Camera</figcaption>
+      </figure>
+    </section>
+    <section id="why" class="page-width impact">
+      <div>
+        <p class="flight-label">Why it matters</p>
+        <h2>The skyline changes the mission.</h2>
+        <p>Near the Moon’s south pole, a ridge can block the low Sun or hide Earth for hours. A lander may have to run on batteries while it waits for sunlight, and a team may have to wait for the next chance to send data home.</p>
+        <p>When a launch slips, planners can compare a new arrival date or a nearby site and see which option leaves enough sunlight and potential contact for the planned work.</p>
       </div>
-      <p class="caption">Drag to move. Double-click, the + and − buttons, or Ctrl + scroll to zoom. Click a white dot to select that preset site; click anywhere else to drop a pin. Arrows at the selected site point toward the Sun and Earth at the current time. Imagery: NASA LROC WAC; terrain and long-term maps: NASA LOLA; names: IAU.</p>
-      <div class="guide"><b>Reading the polar maps.</b> The pole is at the centre and every direction away from it is north (south pole map) or south (north pole map). Bright cyan patches are permanently shadowed: crater floors the Sun never reaches, where ice may survive. Turn on "Sun visibility" to see the rare ridges and rims that are lit most of the time; the best landing sites sit where those meet good Earth visibility.</div>
+      <a class="sample-reading" href="navigator.html?demo=clearance">
+        <span class="flight-label">Connecting Ridge · 17 Nov 2026, 02:30 UTC</span>
+        <strong>−0.819° <span class="reading-arrow" aria-hidden="true">→</span> +0.817°</strong>
+        <span>Modeled Earth-center clearance at 2 m vs 10 m mast height</span>
+        <span class="sample-link">Inspect the same moment in 3D <span aria-hidden="true">↗</span></span>
+      </a>
     </section>
-
-    <section class="panel" aria-labelledby="hGlobe">
-      <header>
-        <h2 id="hGlobe">3D map</h2>
-        <div class="row">
-          <label for="gBase">Base</label>
-          <select id="gBase"><option value="wac">Photo (LROC WAC)</option><option value="relief">Shaded relief</option><option value="elev">Elevation colours</option></select>
-          <div class="seg" role="group" aria-label="Go to">
-            <button id="gSite" title="Turn to the selected site">To site</button><button id="gSouth">South pole</button><button id="gNorth">North pole</button><button id="gNear" title="The side that always faces Earth">Near side</button>
-          </div>
-          <div class="seg" role="group" aria-label="Zoom"><button id="gOut" title="Zoom out (− key)">−</button><button id="gIn" title="Zoom in (+ key)">+</button></div>
-        </div>
-      </header>
-      <fieldset class="row checks" id="globeChecks">
-        <legend>Show</legend>
-        <label title="Light the Moon from where the Sun is at the current time, with shadows cast by the terrain"><input type="checkbox" id="gLight" data-k="light" checked> Sunlight and shadows now</label>
-        <label title="NASA long-term average (polar regions)"><input type="checkbox" id="gSun" data-k="sun"> Sun visibility</label>
-        <label title="NASA long-term average (polar regions)"><input type="checkbox" id="gEarth" data-k="earth"> Earth visibility</label>
-        <label><input type="checkbox" id="gPsr" data-k="psr" checked> Permanent shadow</label>
-        <label><input type="checkbox" id="gReg" data-k="regions" checked> Artemis III regions</label>
-        <label><input type="checkbox" id="gObj" data-k="objects" checked> Human-made objects</label>
-        <label><input type="checkbox" id="gNames" data-k="names" checked> Names</label>
-        <label><input type="checkbox" id="gGrid" data-k="grid" checked> Grid</label>
-        <label><input type="checkbox" id="gSites" data-k="sites" checked> Preset sites</label>
-      </fieldset>
-      <div class="stack">
-        <canvas id="globe" tabindex="0" role="img" aria-label="Rotatable 3D view of the Moon lit by the Sun at the current time. Drag to turn, double-click or use the + and − keys to zoom."></canvas>
-        <canvas id="globeOv" aria-hidden="true"></canvas>
+    <section id="demos" class="page-width demos">
+      <h2>Three ways to explore a mission</h2>
+      <div class="demo-grid">
+        <article class="demo-card demo-explore">
+          <span class="demo-mark" aria-hidden="true">◒</span>
+          <h3>Explore the horizon</h3>
+          <p>Face Earth from the lander, step across Earthset, and inspect the terrain skyline.</p>
+          <a class="flight-button secondary" href="navigator.html?demo=earthset">Open Earthset demo <span aria-hidden="true">↗</span></a>
+        </article>
+        <article class="demo-card demo-compare">
+          <span class="demo-mark" aria-hidden="true">◫</span>
+          <h3>Compare scenarios</h3>
+          <p>Put two sites side by side, or change one mission input and compare its effect.</p>
+          <a class="flight-button secondary" href="navigator.html?view=compare">Open comparison <span aria-hidden="true">↗</span></a>
+        </article>
+        <article class="demo-card demo-find">
+          <span class="demo-mark" aria-hidden="true">⌁</span>
+          <h3>Find an arrival window</h3>
+          <p>Search later dates and weigh potential contact against time with an empty battery.</p>
+          <a class="flight-button secondary" href="navigator.html?view=find">Open date search <span aria-hidden="true">↗</span></a>
+        </article>
       </div>
-      <div class="row"><span class="num hint" id="globeRead" style="flex:1" role="status">Loads when scrolled into view.</span></div>
-      <p class="caption">Drag to turn the Moon. Double-click, the + and − buttons, or Ctrl + scroll to zoom. Click a white dot to select a preset site, or anywhere else to pin a custom site. The lighting follows the time slider: press Play to watch shadows sweep across the pole.</p>
-      <div class="guide"><b>What the lighting shows.</b> The bright side faces the Sun at the chosen moment and the line between day and night creeps round once every 29.5 days. Zoom in on the south pole and scrub through time: crater floors stay black while a few ridges catch light almost continuously. Night and shadowed areas are dimmed rather than blacked out so the data layers stay readable.</div>
     </section>
-
-    <section class="panel" aria-labelledby="hPov">
-      <header>
-        <h2 id="hPov">Lander view</h2>
-        <div class="row">
-          <div class="seg" role="group" aria-label="Look toward"><button id="pSun">Face the Sun</button><button id="pEarth">Face Earth</button></div>
-          <div class="seg" role="group" aria-label="Zoom"><button id="pOut" title="Wider view (− key)">−</button><button id="pIn" title="Zoom in (+ key)">+</button></div>
-          <span class="num hint" id="povFov"></span>
+    <section id="data" class="page-width provenance">
+      <div class="data-shell">
+        <h2>From NASA data to mission windows</h2>
+        <div class="data-grid">
+          <div><h3>LOLA terrain</h3><p>Laser altimetry supplies the elevation models used to trace local skylines.</p><a href="https://pgda.gsfc.nasa.gov/products/69">NASA LOLA data ↗</a></div>
+          <div><h3>JPL Horizons</h3><p>Bundled ephemerides give Sun and Earth directions for each preset site over time.</p><a href="https://ssd-api.jpl.nasa.gov/doc/horizons.html">Horizons documentation ↗</a></div>
+          <div><h3>LROC imagery</h3><p>Orbiter mosaics provide the terrain context visible in the 2D and 3D maps.</p><a href="https://data.lroc.im-ldi.com/lroc/rdr_product_select">LROC map products ↗</a></div>
         </div>
-      </header>
-      <fieldset class="row checks" id="povChecks">
-        <legend>Show</legend>
-        <label><input type="checkbox" id="pNames" data-k="names" checked> Names of features in view</label>
-        <label title="Draws the precomputed horizon used for all the numbers on this page, to compare with the 3D terrain"><input type="checkbox" id="pSky" data-k="skyline"> Precomputed skyline</label>
-        <label title="A random sprinkle of stars, not a real star map"><input type="checkbox" id="pStars" data-k="stars" checked> Stars</label>
-      </fieldset>
-      <div class="stack">
-        <canvas id="pov" tabindex="0" role="img" aria-label="First-person view from the lander: terrain, Sun, Earth and stars at the current time. Drag to look around, use the + and − keys to zoom."></canvas>
-        <canvas id="povOv" aria-hidden="true"></canvas>
+        <p class="method-note">The app models sunlight, battery behavior, and potential contact. Its Deep Space Network estimate is based on terrain visibility and station elevation.</p>
       </div>
-      <div class="row"><span class="num hint" id="povRead" style="flex:1" role="status">Loads when scrolled into view.</span></div>
-      <p class="caption">What a camera on top of the mast would see at the current time. Drag to look around; the + and − buttons or Ctrl + scroll zoom. The small compass shows which way you are facing (shaded wedge) and the bearings of the Sun and Earth (dots). Brightness is adjusted automatically, as a camera would, because sunlight at the poles only grazes the ground. Stars are illustrative.</p>
-      <div class="guide"><b>Things to try.</b> Press "Face the Sun", then Play: at a polar site the Sun slides sideways along the hills and slips behind them, and the ground darkens when it does. Press "Face Earth" to see how low Earth hangs and how a nearby ridge can cover it. Raise the mast height under Assumptions and watch the skyline drop.</div>
     </section>
-
-    <section class="panel" aria-labelledby="hTl">
-      <header><h2 id="hTl">Timelines over the window</h2><span class="hint">Click or drag to move the time. Arrow keys step.</span></header>
-      <div id="dsnFlag" class="flag" role="status"></div>
-      <fieldset class="row checks" id="tlChecks">
-        <legend>Show rows</legend>
-        <label><input type="checkbox" id="showSun" data-row="sun" checked> Sun elevation</label>
-        <label><input type="checkbox" id="showEarth" data-row="earth" checked> Earth elevation</label>
-        <label><input type="checkbox" id="showDsn" data-row="dsn" checked> DSN complexes</label>
-        <label><input type="checkbox" id="showGreen" data-row="green" checked> Sun + link</label>
-        <label><input type="checkbox" id="showPower" data-row="power" checked> Power</label>
-        <label><input type="checkbox" id="showBatt" data-row="batt" checked> Battery</label>
-      </fieldset>
-      <canvas id="tl" role="img" aria-label="Timelines of Sun, Earth, DSN contact, power and battery"></canvas>
-      <div class="guide"><b>How to read this.</b> Each row shares the same time axis. Shaded bands in the Sun row mean the site is sunlit; in the Earth row, that Earth is above the terrain. A lander can talk directly to Earth only when Earth is visible <i>and</i> one of NASA's three Deep Space Network sites has the Moon in its sky. The green row marks the best times: sunlight and a link together. Red marks across the DSN lanes are coverage gaps, when none of the three sites can see the Moon.</div>
-    </section>
-
-    <div>
-      <section class="panel" aria-labelledby="hWin">
-        <h2 id="hWin">Over the whole window</h2>
-        <div class="cards" id="winCards"></div>
-        <p class="caption" id="srcLine"></p>
-      </section>
-    </div>
-
-    <section class="panel" aria-labelledby="hCmp">
-      <header>
-        <h2 id="hCmp">Compare scenarios</h2>
-        <div class="row"><span class="hint" id="cmpHint"></span><button id="cmpAdd" title="Save the current site, dates and settings as a column below (up to 4)">Add current scenario</button></div>
-      </header>
-      <div class="scroll"><table class="cmp" id="cmpTable"></table></div>
-      <canvas id="cmpTl" role="img" aria-label="Aligned timelines of the saved scenarios"></canvas>
-      <div class="legend">
-        <span><i style="background:var(--sun)"></i>sunlit</span><span><i style="background:var(--earth)"></i>Earth visible</span>
-        <span><i style="background:var(--dsn1)"></i>DSN link</span><span><i style="background:var(--green)"></i>sunlight + link</span><span><i style="background:var(--warn)"></i>battery empty</span>
-      </div>
-      <p class="caption">Each scenario is a site, a window and its settings. Timelines are lined up by time since each window started, so different dates can be compared. The best value in each row is outlined.</p>
-      <div class="guide"><b>How to compare.</b> Set up a site and dates above, then press "Add current scenario". Change the site, the date or a setting such as mast height and add again. "Load" brings a saved scenario back into the main view.</div>
-    </section>
-
-    <div class="split even">
-      <section class="panel" aria-labelledby="hFind">
-        <h2 id="hFind">Find a window</h2>
-        <div class="row">
-          <label for="findGoal">Best start date for</label>
-          <select id="findGoal">
-            <option value="green">most sunlight + DSN link time</option><option value="greenRun">longest unbroken sunlight + link</option>
-            <option value="sun">most sunlight</option><option value="link">most DSN link time</option><option value="dark">shortest darkness</option>
-          </select>
-          <label for="findRange">searching the next</label>
-          <select id="findRange"><option value="30">30 days</option><option value="90" selected>90 days</option><option value="180">6 months</option><option value="365">1 year</option></select>
-          <button id="findGo">Search</button>
-        </div>
-        <p class="flag" id="findDesc"></p>
-        <canvas id="findCv" role="img" aria-label="Score of each candidate start date"></canvas>
-        <p class="caption" id="findOut">Searches start dates after the current window start, for a window of the current length at the current site and settings. Click the chart to try a start date.</p>
-        <div class="row"><button id="findUse" disabled>Use the best start date</button></div>
-        <details class="about">
-          <summary>About scoring</summary>
-          <p>Each candidate start date gets one number, taken from a single long simulation of the site.</p>
-          <p><b>The simulation.</b> From the current window start, the app samples every 30 minutes across the whole search range plus one window length. At each sample it sets three yes/no flags, using your current mast height, Earth rule and DSN minimum elevation:</p>
-          <ul>
-            <li><b>Sunlit:</b> any part of the Sun's disc is above the terrain horizon in the Sun's direction.</li>
-            <li><b>DSN link:</b> Earth is above the terrain and the Moon is high enough at Goldstone, Madrid or Canberra.</li>
-            <li><b>Sunlight + link:</b> both at once.</li>
-          </ul>
-          <p><b>The candidates.</b> Start dates are tried every 6 hours for searches up to 90 days, every 12 hours for 6 months and every 24 hours for a year. Each is scored on the samples inside a window of your chosen length.</p>
-          <div class="scroll"><table class="raw about-t">
-            <tr><th>Goal</th><th>Score</th><th>Best is</th></tr>
-            <tr><td>Most sunlight + DSN link time</td><td>Percentage of samples flagged sunlight + link</td><td>highest</td></tr>
-            <tr><td>Longest unbroken sunlight + link</td><td>Longest run of consecutive sunlight + link samples, in hours</td><td>highest</td></tr>
-            <tr><td>Most sunlight</td><td>Percentage of samples flagged sunlit</td><td>highest</td></tr>
-            <tr><td>Most DSN link time</td><td>Percentage of samples flagged DSN link</td><td>highest</td></tr>
-            <tr><td>Shortest darkness</td><td>Longest run of consecutive samples that are not sunlit, in hours</td><td>lowest</td></tr>
-          </table></div>
-          <p>The chart plots the score against start date and the green dot marks the best one. If several dates tie, the earliest wins.</p>
-          <p><b>Limits.</b></p>
-          <ul>
-            <li>Everything is resolved to 30 minutes, so shorter events (such as a 20-minute DSN gap) can be missed and run lengths are accurate to about half an hour.</li>
-            <li>Power, battery and lander layout do not enter the score; a partly hidden Sun counts as sunlit.</li>
-            <li>"Shortest darkness" only sees darkness inside the window, so a night cut off by the window's start or end looks shorter than it is.</li>
-          </ul>
-        </details>
-        <div class="guide"><b>What the goals mean.</b>
-          <dl class="goals">
-            <dt>Most sunlight + DSN link time</dt><dd>Largest share of the window with the site sunlit while a DSN complex can be reached. Best for a mission that needs power and contact together as much as possible.</dd>
-            <dt>Longest unbroken sunlight + link</dt><dd>Longest single stretch with sunlight and a link the whole time. Best when one continuous operation, such as a drive or a drill run, must not be interrupted.</dd>
-            <dt>Most sunlight</dt><dd>Largest share of the window with any sunlight. Best when power matters most and contact can wait.</dd>
-            <dt>Most DSN link time</dt><dd>Largest share of the window with Earth above the terrain and a DSN complex in view. Best when contact matters most.</dd>
-            <dt>Shortest darkness</dt><dd>Smallest value of the longest dark stretch in the window. Best for a lander that must survive on its battery through the night.</dd>
-          </dl>
-        </div>
-      </section>
-      <section class="panel" aria-labelledby="hShare">
-        <h2 id="hShare">Share and export</h2>
-        <div class="row">
-          <button id="shareLink" title="Puts the scenario in the page address and copies the link">Copy link to this scenario</button>
-          <button id="shareCode" title="Copies a short code you can paste below on another device">Copy scenario code</button>
-        </div>
-        <div class="row">
-          <input id="codeIn" type="text" placeholder="paste a scenario code" aria-label="Scenario code" style="flex:1; min-width:0">
-          <button id="codeLoad">Load code</button>
-        </div>
-        <div class="row">
-          <button id="csvCopy" title="Copies the time series of the current window as CSV text">Copy time series as CSV</button>
-          <button id="csvSave" title="Saves a .csv file. Works on a normal website; blocked inside a Claude artifact.">Download CSV</button>
-        </div>
-        <p class="caption" id="shareOut" role="status">The CSV has one row per sample: Sun and Earth angles, terrain horizon, visibility, DSN, power and battery.</p>
-      </section>
-    </div>
-
-    <section class="panel guide-block" aria-labelledby="hWhy">
-      <h2 id="hWhy">Why the poles are special</h2>
-      <div class="guide"><b>Why does the Sun skim the horizon at the pole?</b> The Moon's axis is tilted only 1.5° to its orbit round the Sun. Standing at a pole, you never see the Sun climb or sink much: it circles the whole horizon once a month, at most about 1.5° above or below it. Every hill on the skyline can therefore switch your sunlight on or off.</div>
-      <div class="guide"><b>Why can a ridge 1 km away block Earth?</b> From the south pole, Earth hangs low in the north and only bobs up and down by about 6.5° (an effect called libration). A ridge 1 km away that stands just 100 m above you covers nearly 6° of sky in that direction, enough to hide Earth for days at a time.</div>
-      <div class="guide"><b>Why do metres matter?</b> Moving a few hundred metres, or raising the mast from 2 m to 10 m, changes which hills are on the skyline. Try the two mast heights at the connecting ridge and watch the sunlit percentage change.</div>
-    </section>
-  </div>
-</div>
-<div id="tip" role="tooltip"></div>
-
-<script src="js/astro.js"></script>
-<script src="js/terrain.js"></script>
-<script src="js/engine.js"></script>
-<script src="js/map.js"></script>
-<script src="js/globe.js"></script>
-<script src="js/pov.js"></script>
-<script src="js/app.js"></script>
+  </main>
+  <footer class="page-width landing-footer"><span>Lunar Maps · NASA Space Apps Challenge</span><a href="navigator.html">Open mission workspace ↗</a></footer>
 </body>
 </html>

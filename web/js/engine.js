@@ -314,7 +314,7 @@ const Engine = (() => {
       const c = { t0: opt.t0 + a * dt, score }; out.push(c);
       if (!best || (criterion === 'dark' ? score < best.score : score > best.score)) best = c;
     }
-    return { candidates: out, best, unit: runMode ? 'h' : '%', lowerIsBetter: criterion === 'dark' };
+    return { candidates: out, best, sampleStepMs: dt, candidateStepMs: stepC * dt, unit: runMode ? 'h' : '%', lowerIsBetter: criterion === 'dark' };
   }
 
   // ------------------------------------------------------------- events

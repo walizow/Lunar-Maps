@@ -1,5 +1,5 @@
 // Engine checks from section 7 of the brief. Run:  node tests/check_engine.js
-// Env: LUNAR_HORIZONS = folder containing horizons_out/ and horizons_custom/ (the raw JPL CSVs)
+// Env: LUNAR_HORIZONS = parent folder of horizons_out, horizons_custom, or horizons_extra.
 const fs = require('fs'), path = require('path');
 const WEB = path.join(__dirname, '..', 'web');
 const HZ = process.env.LUNAR_HORIZONS || '/mnt/user-data/uploads';
@@ -15,12 +15,23 @@ const fmt = (x, n = 3) => x.toFixed(n);
 
 (async () => {
   const DB = await Engine.load();
+  const sites = DB.sites.filter(s => s.eph);
+  const inputFolders = new Map(sites.map(site => [site.id,
+    ['horizons_out', 'horizons_custom', 'horizons_extra'].find(folder =>
+      ['sun', 'earth'].every(body => fs.existsSync(path.join(HZ, folder, site.id + '__' + body + '.csv')))
+    )
+  ]));
+  const missing = sites.filter(site => !inputFolders.get(site.id));
+  if (missing.length) {
+    throw Error(`Missing Sun/Earth CSV pairs for ${missing.length} of ${sites.length} sites under ${HZ}. `
+      + `Run node pipeline/fetch_validation_horizons.js "<directory>" and point LUNAR_HORIZONS at that directory.`);
+  }
   let fail = 0; const bad = m => { fail++; console.log('  ** FAIL: ' + m); };
 
   console.log('== Check 1: browser ephemeris (astro.js) vs JPL Horizons, elevation, every 6 h over 2026-2028 ==');
   let worstRms = 0, worstMax = 0, tabErr = 0;
-  for (const s of DB.sites.filter(s => s.eph)) {
-    const folder = ['horizons_out', 'horizons_custom', 'horizons_extra'].find(f => fs.existsSync(path.join(HZ, f, s.id + '__sun.csv')));
+  for (const s of sites) {
+    const folder = inputFolders.get(s.id);
     const sun = readCsv(path.join(HZ, folder, s.id + '__sun.csv')), earth = readCsv(path.join(HZ, folder, s.id + '__earth.csv'));
     await Engine.ensureTable(s);
     let se = 0, ee = 0, ms = 0, me = 0, n = 0;
@@ -86,4 +97,8 @@ const fmt = (x, n = 3) => x.toFixed(n);
   const ev = Engine.nextEvent(DB.byId['apollo-11'], opt, Date.UTC(2026, 10, 15), 'sunset');
   console.log('  next sunset at Apollo 11 after 2026-11-15: ' + new Date(ev).toISOString());
   console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nAll engine checks passed');
-})();
+  if (fail) process.exitCode = 1;
+})().catch(error => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

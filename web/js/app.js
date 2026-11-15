@@ -25,6 +25,8 @@
   let S = null;                        // current time series (Engine.series)
   let now = null;                      // everything about the current instant
   const beyond = {};                   // cache: first events after the window ends
+  let inspectedBody = 'earth';
+  let checkpoint = null;
 
   // ------------------------------------------------------------ formatting
   const pad = n => String(n).padStart(2, '0');
@@ -53,6 +55,9 @@
 
   function recompute() {
     if (!st.site) return;
+    checkpoint = null;
+    $('clearanceStatus').textContent = '';
+    $('trialStatus').textContent = '';
     S = Engine.series(st.site, opt());
     for (const k in beyond) delete beyond[k];
     st.t = Math.min(Math.max(st.t, st.t0), st.t0 + st.hours * HOUR);
@@ -74,7 +79,8 @@
       stations: Engine.DSN.filter((c, k) => dsnEl[k] >= st.dsnMinEl), soc: S.soc[i] };
     $('scrub').value = Math.round(1000 * (st.t - st.t0) / (st.hours * HOUR));
     $('nowText').textContent = fmtUTC(st.t);
-    drawNowCards(); drawSky(); drawTimeline(); drawLander(); drawScale();
+    Workspace.setSite(st.site.name);
+    drawNowCards(); drawClearance(); drawSky(); drawTimeline(); drawLander(); drawScale();
     MapView.setSunEarth({ sunAz: p.sun.az, earthAz: p.earth.az, sunUp: now.sunUp, earthUp: now.earthUp });
     Globe.setTime(p.g);
     Pov.setMast(st.mast, mask);
@@ -102,6 +108,245 @@
     return beyond[kind];
   }
 
+  function trialConfig(config) {
+    const value = Number($('trialValue').value);
+    return $('trialKind').value === 'mast'
+      ? { ...config, mast: value }
+      : { ...config, t0: config.t0 + value * 24 * HOUR };
+  }
+
+  function setTrialChoices() {
+    const mast = $('trialKind').value === 'mast';
+    const choices = mast ? Engine.DB.masts : [1, 3, 7, 14];
+    $('trialValueLabel').textContent = mast ? 'Trial mast (m)' : 'Days later';
+    $('trialValue').replaceChildren(...choices.map(value => new Option(value, value)));
+    $('trialValue').value = mast ? '10' : '3';
+  }
+
+  function drawClearance() {
+    if ($('clearanceDock').hidden || $('workspace-explore').hidden) return;
+    const body = now.p[inspectedBody];
+    const isEarth = inspectedBody === 'earth';
+    const label = isEarth ? 'Earth' : 'Sun';
+    const skyline = isEarth ? now.he : now.hs;
+    const visible = isEarth ? now.earthUp : now.sunUp;
+    const clearance = body.el - skyline;
+    const event = visible ? 'set' : 'rise';
+    const next = nextEvent(inspectedBody + event);
+    $('clearanceBearing').textContent = body.az.toFixed(1) + '° ' + compass(body.az);
+    $('clearanceElevation').textContent = deg(body.el, 3);
+    $('clearanceSkyline').textContent = deg(skyline, 3);
+    $('clearanceValue').textContent = deg(clearance, 3);
+    $('clearanceValue').className = clearance > 0 ? 'good' : 'bad';
+    $('clearanceVisibility').textContent = label + (visible ? ' visible' : ' hidden');
+    $('clearanceVisibility').className = 'pill ' + (visible ? 'good' : 'bad');
+    $('clearanceContact').textContent = now.earthUp && now.stations.length
+      ? 'Potential DSN contact · ' + now.stations.map(station => station.name).join(', ')
+      : 'No potential DSN contact';
+    $('clearanceNext').textContent = next == null
+      ? 'No modeled ' + label + event + ' found ahead'
+      : 'Next ' + label + event + ' · ' + fmtUTC(next) + ' (estimated)';
+    $('clearanceRule').textContent = isEarth
+      ? 'Clearance uses the center. Earth visibility rule: ' + $('earthEdge').selectedOptions[0].textContent + '.'
+      : 'Clearance uses the center. Sunlight is possible when any part of the disc clears the skyline.';
+    $('clearanceSet').textContent = 'Jump to next ' + label + 'set';
+    const set = checkpoint ?? (visible ? next : nextEvent(inspectedBody + 'set'));
+    for (const [id, minutes] of [['clearanceBefore', -10], ['clearanceAfter', 10]]) {
+      const time = set + minutes * 60000;
+      $(id).disabled = set == null || time < st.t0 || time > st.t0 + st.hours * HOUR;
+    }
+    if ($('tryChange').open) drawTrial();
+  }
+
+  function drawTrial() {
+    const original = snapshot();
+    const alternate = trialConfig(original);
+    const alternateTime = alternate.t0 + (st.t - original.t0);
+    const body = Engine.pos(st.site, alternateTime)[inspectedBody];
+    const nextClearance = body.el - Engine.maskAt(Engine.maskOf(st.site, alternate.mast), body.az);
+    const clearance = now.p[inspectedBody].el - (inspectedBody === 'earth' ? now.he : now.hs);
+    const change = $('trialKind').value === 'mast'
+      ? `${original.mast} m → ${alternate.mast} m mast`
+      : `${fmtUTC(original.t0)} → ${fmtUTC(alternate.t0)}`;
+    const mastTrial = $('trialKind').value === 'mast' && original.mast !== alternate.mast;
+    $('trialRead').textContent = `${change} · Center clearance ${deg(clearance, 3)} → ${deg(nextClearance, 3)} at the same elapsed mission time.`
+      + (mastTrial && !$('view-lander').hidden ? ' Dashed mint shows the trial skyline.' : '');
+    Pov.setTrialMask(mastTrial ? Engine.maskOf(st.site, alternate.mast) : null);
+    $('trialCompare').disabled = encodeScenario(alternate) === encodeScenario(original);
+  }
+
+  function inspectBody(which) {
+    if (which !== inspectedBody) {
+      inspectedBody = which;
+      checkpoint = null;
+      $('clearanceStatus').textContent = '';
+    }
+    $('inspectEarth').setAttribute('aria-pressed', String(which === 'earth'));
+    $('inspectSun').setAttribute('aria-pressed', String(which === 'sun'));
+    Pov.setInspection(which);
+    Pov.face(which);
+    drawClearance();
+  }
+
+  function visitClearanceCheckpoint(minutes) {
+    if (!now) return;
+    const event = checkpoint ?? nextEvent(inspectedBody + 'set');
+    if (event == null) {
+      $('clearanceStatus').textContent = 'No modeled set event was found ahead.';
+      return;
+    }
+    const time = event + minutes * 60000;
+    if (time < st.t0 || time > st.t0 + st.hours * HOUR) {
+      $('clearanceStatus').textContent = 'That checkpoint is outside this mission window. Extend the window to visit it.';
+      return;
+    }
+    checkpoint = event;
+    stop();
+    setTime(time);
+    Pov.face(inspectedBody);
+    $('clearanceStatus').textContent = `Checkpoint anchored to the modeled set at ${fmtUTC(event)}.`;
+  }
+
+  async function loadClearanceDemo() {
+    const config = {
+      site: 'derosa2012-cr1-connecting-ridge', t0: Date.UTC(2026, 10, 15), hours: 708.72,
+      mast: 2, earthEdge: 0, dsnMinEl: 10, loadW: 200, batteryWh: 1500,
+      lander: { ...Engine.LANDERS['nova-c'], preset: 'nova-c', heading: 0, tilt: 0, tiltDir: 0 }
+    };
+    await applyScenario(config);
+    setTime(Date.UTC(2026, 10, 17, 2, 30));
+    inspectBody('earth');
+    $('trialKind').value = 'mast';
+    setTrialChoices();
+    $('tryChange').open = true;
+    drawTrial();
+    $('clearanceStatus').textContent = 'Connecting Ridge · 17 Nov 2026, 02:30 UTC. Preview a 10 m mast or jump to Earthset.';
+  }
+
+  function wireClearance() {
+    setTrialChoices();
+    $('inspectEarth').onclick = () => inspectBody('earth');
+    $('inspectSun').onclick = () => inspectBody('sun');
+    $('clearanceSet').onclick = () => { checkpoint = null; visitClearanceCheckpoint(0); };
+    $('clearanceBefore').onclick = () => visitClearanceCheckpoint(-10);
+    $('clearanceAfter').onclick = () => visitClearanceCheckpoint(10);
+    $('clearanceDemo').onclick = async () => {
+      $('clearanceDemo').disabled = true;
+      try { await loadClearanceDemo(); }
+      catch (error) { $('clearanceStatus').textContent = 'Could not load the demo: ' + error.message; }
+      finally { $('clearanceDemo').disabled = false; }
+    };
+    $('trialKind').onchange = () => { setTrialChoices(); drawTrial(); };
+    $('trialValue').onchange = drawTrial;
+    $('tryChange').ontoggle = () => {
+      if (now && $('tryChange').open) drawTrial();
+      else Pov.setTrialMask(null);
+    };
+    $('trialCompare').onclick = () => {
+      const original = snapshot();
+      const mast = $('trialKind').value === 'mast';
+      showScenarioPair(original, trialConfig(original), st.site, ['original', mast ? 'mast trial' : 'arrival trial'], 'trialStatus');
+    };
+    Pov.setInspection(inspectedBody);
+  }
+
+  function copilotContext() {
+    if (!now || !st.site) return null;
+    const stats = S.stats;
+    const lines = [
+      `${st.site.name} · ${fmtUTC(st.t)}`,
+      `Mission starts ${fmtUTC(st.t0)}, lasts ${fmtDur(st.hours)}, mast ${st.mast} m. Earth visibility rule: ${$('earthEdge').selectedOptions[0].textContent}.`,
+      `Sun elevation ${deg(now.p.sun.el, 3)}, terrain skyline ${deg(now.hs, 3)}, center clearance ${deg(now.p.sun.el - now.hs, 3)}, ${now.sunUp ? 'visible' : 'hidden'}.`,
+      `Earth elevation ${deg(now.p.earth.el, 3)}, terrain skyline ${deg(now.he, 3)}, center clearance ${deg(now.p.earth.el - now.he, 3)}, ${now.earthUp ? 'visible' : 'hidden'}.`,
+      `Potential DSN contact now: ${now.earthUp && now.stations.length ? now.stations.map(station => station.name).join(', ') : 'none'}.`,
+      `Current generation ${Math.round(now.watts)} W, load ${st.loadW} W, battery ${Math.round(now.soc)} Wh.`,
+      `Mission totals: ${stats.pctLink.toFixed(1)}% potential DSN contact, ${stats.pctGreen.toFixed(1)}% simultaneous sunlight and potential contact, ${fmtDur(stats.emptyH)} with an empty battery.`
+    ];
+    if (found) {
+      lines.push(`Last search for ${found.site.name}, original start ${fmtUTC(found.original.t0)}. Shortlist: `
+        + found.shortlist.map(candidate => `${fmtUTC(candidate.t0)}: ${candidate.stats.pctLink.toFixed(1)}% potential contact, ${fmtDur(candidate.stats.emptyH)} empty battery`).join('; '));
+    }
+    return lines.join('\n');
+  }
+
+  function openLanderEvidence() {
+    stop();
+    Workspace.show('explore');
+    Workspace.showView('lander');
+    inspectBody('earth');
+  }
+
+  function showCopilotEarthset() {
+    openLanderEvidence();
+    const event = nextEvent('earthset');
+    const offset = 10 * 60000;
+    if (event == null || event - offset < st.t0 || event + offset > st.t0 + st.hours * HOUR) {
+      return { title: 'Earthset outside this window', text: 'Extend the mission window to include ten minutes on either side of a modeled Earthset, or load the Connecting Ridge demo in Horizon clearance.' };
+    }
+    const readingAt = time => {
+      const earth = Engine.pos(st.site, time).earth;
+      return earth.el - Engine.maskAt(Engine.maskOf(st.site, st.mast), earth.az);
+    };
+    checkpoint = event;
+    visitClearanceCheckpoint(-10);
+    const before = deg(readingAt(event - offset), 3);
+    const after = deg(readingAt(event + offset), 3);
+    return {
+      title: 'Earth crosses the terrain skyline',
+      text: `Earth center clearance is ${before} ten minutes before and ${after} ten minutes after modeled Earthset. Use the checkpoint buttons below the lander view to step across it.`,
+      evidence: `${st.site.name} · ${fmtUTC(event)} · ${st.mast} m mast · NASA LOLA + ${now.p.src === 'horizons' ? 'JPL Horizons' : 'computed ephemeris'}`,
+      narration: st.site.id === 'derosa2012-cr1-connecting-ridge' && st.mast === 2 && st.earthEdge === 0
+        && Math.abs(event - Date.UTC(2026, 10, 29, 20, 13)) < 60000 * 3
+    };
+  }
+
+  function showCopilotMast() {
+    openLanderEvidence();
+    $('trialKind').value = 'mast';
+    setTrialChoices();
+    $('trialValue').value = '10';
+    $('tryChange').open = true;
+    drawTrial();
+    return {
+      title: 'Trial skyline at 10 m',
+      text: $('trialRead').textContent + ' Compare outcomes saves the two mission configurations.',
+      evidence: `${st.site.name} · ${fmtUTC(st.t)} · NASA LOLA terrain`
+    };
+  }
+
+  function showCopilotDelay() {
+    stop();
+    Workspace.show('find');
+    $('findGoal').value = 'green';
+    $('findGoal').onchange();
+    $('findRange').value = '90';
+    $('batteryLimit').value = '0';
+    runFind();
+    if (!found) return { title: 'Choose a mission window', text: $('findOut').textContent };
+    const best = found.shortlist.find(candidate => candidate.best);
+    const passing = found.shortlist.filter(candidate => !candidate.original && candidate.stats.emptyH <= 1e-8);
+    return {
+      title: 'Contact and battery across the shortlist',
+      text: `The top search result has ${best.stats.pctLink.toFixed(1)}% modeled potential contact and ${fmtDur(best.stats.emptyH)} with an empty battery. ${passing.length ? passing.length + ' later shortlisted dates meet the zero-hour battery limit.' : 'None of the later dates in this shortlist meet the zero-hour battery limit.'}`,
+      evidence: `${found.site.name} · Top candidate ${fmtUTC(best.t0)} · ${found.shortlist.length} evaluated shortlist entries`
+    };
+  }
+
+  function showCopilotBrief() {
+    stop();
+    Workspace.show('compare');
+    if (cmp.length < 2) return { title: 'Two scenarios needed', text: 'Save a second scenario to produce a mission brief.' };
+    const [baseline, alternative] = [cmp[0], cmp.at(-1)];
+    const describe = entry => `${entry.site.name}, ${fmtUTC(entry.cfg.t0)}, ${entry.cfg.mast} m mast`;
+    const first = baseline.S.stats, last = alternative.S.stats;
+    const text = `Compare A (${describe(baseline)}) with ${'ABCD'[cmp.length - 1]} (${describe(alternative)}). Potential DSN contact is ${first.pctLink.toFixed(1)}% versus ${last.pctLink.toFixed(1)}%. Empty-battery time is ${fmtDur(first.emptyH)} versus ${fmtDur(last.emptyH)} under the saved assumptions.`;
+    return { title: 'Mission comparison brief', text, evidence: 'Source · Saved comparison scenarios and aligned timelines', copy: text };
+  }
+
+  const copilotActions = {
+    earthset: showCopilotEarthset, mast: showCopilotMast, delay: showCopilotDelay, brief: showCopilotBrief
+  };
+
   // ------------------------------------------------------------ cards
   const card = (cls, k, tip, v, s) => `<div class="card ${cls}"><div class="k" title="${tip}">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
 
@@ -117,8 +362,8 @@
       card('earth', 'Earth above terrain', 'Angle between Earth\'s centre and the terrain skyline in Earth\'s direction.',
         deg(p.earth.el - now.he, 2), `${now.earthUp ? '<span class="pill good">visible</span>' : '<span class="pill bad">hidden</span>'} elevation ${deg(p.earth.el, 2)}, bearing ${p.earth.az.toFixed(1)}°<br>` +
         (now.earthUp ? `Earthset <b>${until(eset)}</b>` : `Earthrise <b>${until(erise)}</b>`)),
-      card('link', 'Direct link to Earth', 'Needs Earth above the terrain here AND the Moon high enough at a Deep Space Network complex.',
-        now.earthUp && now.stations.length ? now.stations.map(c => c.name).join(' + ') : 'No link',
+      card('link', 'Potential contact with Earth', 'Needs Earth above the terrain here AND the Moon high enough at a Deep Space Network complex.',
+        now.earthUp && now.stations.length ? now.stations.map(c => c.name).join(' + ') : 'No geometric contact',
         !now.earthUp ? 'Earth is behind terrain' : now.stations.length ? 'DSN complexes with the Moon in view' : 'No DSN complex has the Moon high enough'),
       card('pow' + (now.soc <= 0 && st.batteryWh > 0 ? ' alert' : ''), 'Power now', 'Electrical output of the solar array at this moment, and the simulated battery charge.',
         Math.round(now.watts) + ' W', `load ${st.loadW} W · battery <b>${st.batteryWh > 0 ? Math.round(100 * now.soc / st.batteryWh) + ' %' : 'none'}</b>`),
@@ -143,7 +388,7 @@
       card('sun' + (s.longestDark > 24 * 6 ? ' alert' : ''), 'Longest darkness', 'Longest unbroken stretch with no sunlight. This sizes the battery (or decides whether the lander survives).', fmtDur(s.longestDark),
         `${s.outages} dark period${s.outages === 1 ? '' : 's'} in the window`),
       card('earth', 'Earth visible', 'Share of the window with Earth above the terrain.', pct(s.pctEarth), `longest gap <b>${fmtDur(s.longestNoEarth)}</b>`),
-      card('link', 'DSN link available', 'Share of the window when Earth is visible AND at least one DSN complex has the Moon in view.', pct(s.pctLink), `longest gap <b>${fmtDur(s.longestNoLink)}</b>`),
+      card('link', 'Potential DSN contact', 'Share of the window when Earth is visible AND at least one DSN complex has the Moon in view.', pct(s.pctLink), `longest gap <b>${fmtDur(s.longestNoLink)}</b>`),
       card('link' + (s.dsnGaps.length ? ' alert' : ''), 'DSN coverage gaps', 'Periods when none of the three DSN complexes (Goldstone, Madrid, Canberra) has the Moon above the minimum elevation. No direct link is possible then, whatever the terrain.',
         s.dsnGaps.length ? s.dsnGaps.length + (s.dsnGaps.length === 1 ? ' gap' : ' gaps') : 'None',
         s.dsnGaps.length ? `longest <b>${fmtDur(s.dsnGapLongest)}</b>, total ${fmtDur(s.dsnGapHours)}` : 'a complex always has the Moon in view'),
@@ -444,6 +689,7 @@
 
   function drawTimeline() {
     const cv = $('tl'); cv.style.height = tlHeight() + 'px';      // the canvas shrinks when rows are hidden
+    if (!cv.clientWidth) return;
     const { c, w, h } = fit(cv), dpr = window.devicePixelRatio || 1;
     if (!tlCache || tlCache.w !== w || tlCache.h !== h) { tlCache = renderTimeline(w, h, dpr); tlCache.w = w; tlCache.h = h; }
     c.clearRect(0, 0, w, h); c.drawImage(tlCache.off, 0, 0, w, h);
@@ -775,23 +1021,52 @@
   const METRICS = [                     // [label, value(stats, cfg), text(value), +1 higher is better / -1 lower is better]
     ['Sunlit', s => s.pctLit, v => v.toFixed(1) + ' %', 1], ['Longest sunlit stretch', s => s.longestLit, fmtDur, 1],
     ['Longest darkness', s => s.longestDark, fmtDur, -1], ['Dark periods', s => s.outages, v => String(v), -1],
-    ['Earth visible', s => s.pctEarth, v => v.toFixed(1) + ' %', 1], ['DSN link available', s => s.pctLink, v => v.toFixed(1) + ' %', 1],
+    ['Earth visible', s => s.pctEarth, v => v.toFixed(1) + ' %', 1], ['Potential DSN contact', s => s.pctLink, v => v.toFixed(1) + ' %', 1],
     ['Longest link gap', s => s.longestNoLink, fmtDur, -1], ['DSN coverage gaps', s => s.dsnGaps.length, v => String(v), -1],
     ['Sunlight + link', s => s.pctGreen, v => v.toFixed(1) + ' %', 1], ['Longest sunlight + link', s => s.longestGreen, fmtDur, 1],
     ['Energy generated', s => s.energyWh / 1000, v => v.toFixed(1) + ' kWh', 1], ['Average power', (s, c) => s.energyWh / c.hours, v => Math.round(v) + ' W', 1],
     ['Battery empty for', s => s.emptyH, v => v > 0 ? fmtDur(v) : 'never', -1]];
 
   function addScenario(cfg, site, tag) {
-    if (cmp.length >= 4) { $('cmpHint').textContent = 'Four scenarios is the limit. Remove one first.'; return; }
+    if (cmp.length >= 4) { $('cmpHint').textContent = 'Four scenarios is the limit. Remove one first.'; return false; }
     cmp.push({ cfg, site, S: Engine.series(site, optOf(cfg)), tag: tag || '' });
     drawCompare();
+    return true;
+  }
+
+  function savedScenario(cfg) {
+    const code = encodeScenario(cfg);
+    return cmp.some(entry => encodeScenario(entry.cfg) === code);
+  }
+
+  function showScenarioPair(original, alternative, site, labels, statusId) {
+    const pair = [{ config: original, label: labels[0] }];
+    if (encodeScenario(alternative) !== encodeScenario(original)) {
+      pair.push({ config: alternative, label: labels[1] });
+    }
+    const additions = pair.filter(entry => !savedScenario(entry.config));
+    if (cmp.length + additions.length > 4) {
+      $(statusId).textContent = 'Remove a saved scenario in Compare to make room for this pair.';
+      return;
+    }
+    $(statusId).textContent = '';
+    additions.forEach(({ config, label }) => addScenario(config, site, label));
+    Workspace.show('compare');
+    $('hCmp').tabIndex = -1;
+    $('hCmp').focus({ preventScroll: true });
+  }
+
+  function compareFoundDate(candidate, label) {
+    if (!found) return;
+    showScenarioPair(found.original, { ...found.original, t0: candidate.t0 }, found.site,
+      ['original date', label], 'findStatus');
   }
 
   function drawCompare() {
     const letter = k => 'ABCD'[k];
     $('cmpHint').textContent = cmp.length ? `${cmp.length} of 4` : 'Nothing saved yet.';
     const head = '<thead><tr><th></th>' + cmp.map((x, k) => `<th>${letter(k)}. ${x.site.name.replace(/ \(.*/, '')}${x.tag ? ' <span class="pill">' + x.tag + '</span>' : ''}` +
-      `<small>${fmtUTC(x.cfg.t0).slice(0, 10)} · ${fmtDur(x.cfg.hours)} · ${x.cfg.mast} m mast</small><small>${Engine.LANDERS[x.cfg.lander.preset].label.replace(' (approx.)', '')}, ${x.cfg.loadW} W load</small>` +
+      `<small>${fmtUTC(x.cfg.t0)} · ${fmtDur(x.cfg.hours)} · ${x.cfg.mast} m mast</small><small>${Engine.LANDERS[x.cfg.lander.preset].label.replace(' (approx.)', '')}, ${x.cfg.loadW} W load</small>` +
       `<small><button data-load="${k}">Load</button><button data-del="${k}">Remove</button></small></th>`).join('') + '</tr></thead>';
     const body = METRICS.map(([label, get, text, dir]) => {
       const vals = cmp.map(x => get(x.S.stats, x.cfg)), best = dir > 0 ? Math.max(...vals) : Math.min(...vals);
@@ -799,7 +1074,13 @@
       return `<tr><td>${label}</td>` + vals.map(v => `<td class="${cmp.length > 1 && !tie && v === best ? 'best' : ''}">${text(v)}</td>`).join('') + '</tr>';
     }).join('');
     $('cmpTable').innerHTML = cmp.length ? head + '<tbody>' + body + '</tbody>' : '';
-    $('cmpTable').querySelectorAll('[data-load]').forEach(b => b.onclick = () => applyScenario(cmp[+b.dataset.load].cfg).then(() => window.scrollTo({ top: 0 })));
+    $('cmpTable').querySelectorAll('[data-load]').forEach(button => {
+      button.onclick = async () => {
+        await applyScenario(cmp[+button.dataset.load].cfg);
+        Workspace.show('explore');
+        $('screen-explore').focus();
+      };
+    });
     $('cmpTable').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { cmp.splice(+b.dataset.del, 1); drawCompare(); });
 
     // aligned timelines: one block of thin strips per scenario, x = time since that window started
@@ -831,12 +1112,73 @@
 
   // ------------------------------------------------------------ find a window
   let found = null, findHover = null;      // findHover: the candidate under the pointer on the score chart
+  function buildShortlist(result) {
+    const original = result.candidates[0];
+    const direction = result.lowerIsBetter ? 1 : -1;
+    const ranked = result.candidates.filter(candidate => candidate.t0 !== original.t0)
+      .sort((a, b) => direction * (a.score - b.score) || a.t0 - b.t0);
+    const alternatives = [];
+    for (const candidate of ranked) {
+      if (alternatives.every(selected => Math.abs(selected.t0 - candidate.t0) >= 24 * HOUR)) {
+        alternatives.push(candidate);
+      }
+      if (alternatives.length === 3) break;
+    }
+    return [original, ...alternatives].map(candidate => ({
+      ...candidate,
+      original: candidate.t0 === original.t0,
+      best: candidate.t0 === result.best.t0,
+      stats: Engine.series(result.site, optOf({ ...result.original, t0: candidate.t0 })).stats
+    }));
+  }
+
+  function drawShortlist() {
+    if (!found) { $('shortlist').hidden = true; return; }
+    const limit = $('batteryLimit').valueAsNumber;
+    const rows = found.shortlist.map(candidate => {
+      const stats = candidate.stats;
+      const label = candidate.original ? 'Original' : candidate.best ? 'Top search score' : 'Alternative';
+      const limitCell = Number.isFinite(limit) && limit >= 0
+        ? `<td>${stats.emptyH <= limit + 1e-8 ? 'Within limit' : 'Over limit'}</td>`
+        : '<td>—</td>';
+      return `<tr><th scope="row">${fmtUTC(candidate.t0)}<small>${label}</small></th>
+        <td>${stats.pctGreen.toFixed(1)}%</td><td>${stats.pctLink.toFixed(1)}%</td>
+        <td>${fmtDur(stats.longestNoLink)}</td><td>${fmtDur(stats.emptyH)}</td>${limitCell}
+        <td>${candidate.original ? '' : `<button data-shortlist-time="${candidate.t0}">Compare</button>`}</td></tr>`;
+    });
+    $('shortlistTable').innerHTML = `<thead><tr><th scope="col">Arrival</th>
+      <th scope="col">Sunlight + contact</th><th scope="col">Potential contact</th>
+      <th scope="col">Longest contact gap</th><th scope="col">Battery empty</th>
+      <th scope="col">Battery limit</th><th scope="col">Action</th></tr></thead><tbody>${rows.join('')}</tbody>`;
+    $('shortlistTable').querySelectorAll('[data-shortlist-time]').forEach(button => {
+      button.onclick = () => compareFoundDate({ t0: Number(button.dataset.shortlistTime) }, 'shortlisted date');
+    });
+    $('shortlist').hidden = false;
+  }
+
   function runFind() {
+    if (!st.site) return;
     const goal = $('findGoal').value, range = +$('findRange').value;
+    $('findStatus').textContent = '';
+    if (st.hours < 0.5) {
+      found = null;
+      $('findOut').textContent = 'Choose a mission window of at least 30 minutes to search alternate dates.';
+      $('findUse').disabled = true;
+      $('findCompare').disabled = true;
+      drawShortlist();
+      drawFind();
+      return;
+    }
     found = Engine.findWindow(st.site, opt(), range, goal); found.t0 = st.t0; found.range = range; found.goal = goal;
+    found.original = snapshot();
+    found.site = st.site;
+    found.shortlist = buildShortlist(found);
     const b = found.best, cur = found.candidates[0], f = v => found.unit === '%' ? v.toFixed(1) + ' %' : fmtDur(v);
-    $('findOut').textContent = `Best start: ${fmtUTC(b.t0)} with ${f(b.score)} (${$('findGoal').selectedOptions[0].textContent}). The start you searched from gives ${f(cur.score)}. Checked ${found.candidates.length} start dates over ${range} days in 30-minute steps; click the chart to try any of them.`;
-    $('findUse').disabled = false; drawFind();
+    $('findOut').textContent = `Best start for ${found.site.name}: ${fmtUTC(b.t0)} with ${f(b.score)} (${$('findGoal').selectedOptions[0].textContent}). Original start: ${f(cur.score)}. Checked ${found.candidates.length} start dates spaced ${fmtDur(found.candidateStepMs / HOUR)} apart, using ${fmtDur(found.sampleStepMs / HOUR)} samples.`;
+    $('findUse').disabled = false;
+    $('findCompare').disabled = false;
+    drawShortlist();
+    drawFind();
   }
   function drawFind() {
     const cv = $('findCv'), { c, w, h } = fit(cv); c.clearRect(0, 0, w, h);
@@ -954,7 +1296,7 @@
         onStatus: t => { status = t; $('globeRead').textContent = t || 'Move over the Moon to read coordinates.'; },
         onHover: d => { if (!status) $('globeRead').textContent = d ? fmtLL(d) + (Engine.regionAt(d.lat, d.lon) ? ' · Artemis III region ' + Engine.regionAt(d.lat, d.lon).code : '') : 'Move over the Moon to read coordinates.'; },
         onSelect: site => { $('site').value = site.id; selectSite(site); },
-        onPick: d => { $('cLat').value = d.lat.toFixed(4); $('cLon').value = d.lon.toFixed(4); $('mapUse').disabled = false; MapView.setPin({ lat: d.lat, lon: d.lon }); $('globeRead').textContent = 'Pinned ' + fmtLL(d) + '. Press "Use custom" under Landing site to make it the active site.'; },
+        onPick: d => { $('cLat').value = d.lat.toFixed(4); $('cLon').value = d.lon.toFixed(4); $('mapUse').disabled = false; MapView.setPin({ lat: d.lat, lon: d.lon }); Workspace.openCoordinates(); $('globeRead').textContent = 'Pinned ' + fmtLL(d) + '. Press "Use custom" under Landing site to make it the active site.'; },
       }).then(() => { if (now) Globe.setTime(now.p.g); });
     };
     // The 3D view downloads several megabytes, so it starts only when it scrolls into view.
@@ -978,7 +1320,7 @@
         onStatus: t => { status = t; $('povRead').textContent = t || 'Move over the picture to read bearing and elevation.'; },
         onView: showFov,
         onHover: d => { if (status) return; $('povRead').textContent = d ? `bearing ${d.az.toFixed(1)}° (${compass(d.az)}), elevation ${deg(d.el, 2)} · precomputed terrain horizon on this bearing ${deg(Engine.maskAt(Engine.maskOf(st.site, st.mast), d.az), 2)}` : 'Move over the picture to read bearing and elevation.'; },
-      }).then(() => { if (Pov.ready) { Pov.face(now.sunUp ? 'sun' : 'earth'); showFov(); } });
+      }).then(() => { if (Pov.ready) { Pov.face(inspectedBody); showFov(); } });
     };
     new IntersectionObserver((en, obs) => { if (en.some(x => x.isIntersecting)) { obs.disconnect(); start(); } }, { rootMargin: '200px' }).observe($('pov'));
     $('pSun').onclick = () => { Pov.face('sun'); setTimeout(showFov, 750); }; $('pEarth').onclick = () => { Pov.face('earth'); setTimeout(showFov, 750); };
@@ -988,6 +1330,16 @@
 
   function wireStep4() {
     $('cmpAdd').onclick = () => addScenario(snapshot(), st.site);
+    $('exploreCompare').onclick = () => {
+      if (!st.site) return;
+      Workspace.show('compare');
+      const config = snapshot();
+      if (!savedScenario(config)) addScenario(config, st.site);
+      $('hCmp').tabIndex = -1;
+      $('hCmp').focus({ preventScroll: true });
+    };
+    $('findCompare').onclick = () => { if (found) compareFoundDate(found.best, 'best date'); };
+    $('batteryLimit').oninput = drawShortlist;
     // one-line description of the selected goal, shown under the menu
     const GOALS = {
       green: 'Scores each start date by the percentage of the window with sunlight and a DSN link at the same time. Higher is better.',
@@ -998,13 +1350,18 @@
     const showGoal = () => { $('findDesc').textContent = GOALS[$('findGoal').value]; };
     $('findGoal').onchange = showGoal; showGoal();
     $('findGo').onclick = runFind;
-    $('findUse').onclick = () => { if (found) { setWindow(found.best.t0); drawFind(); } };
-    $('findCv').onclick = e => {
+    $('findUse').onclick = async () => {
+      if (!found) return;
+      await applyScenario({ ...found.original, t0: found.best.t0 });
+      Workspace.show('explore');
+    };
+    $('findCv').onclick = async e => {
       if (!found) return;
       const r = $('findCv').getBoundingClientRect(), f = (e.clientX - r.left - 44) / (r.width - 54);
       const t = found.t0 + Math.min(1, Math.max(0, f)) * found.range * 24 * HOUR;
       const near = found.candidates.reduce((a, q) => Math.abs(q.t0 - t) < Math.abs(a.t0 - t) ? q : a);
-      setWindow(near.t0); drawFind();
+      await applyScenario({ ...found.original, t0: near.t0 });
+      drawFind();
     };
     // hovering the chart shows the exact score of the nearest start date
     $('findCv').onpointermove = e => {
@@ -1052,7 +1409,7 @@
   (async () => {
     try { await Engine.load(); }
     catch (err) { $('status').textContent = 'Could not load data/sites.json. If you opened this file directly from disk, serve the folder instead: python -m http.server'; return; }
-    wire(); applyPreset('nova-c');
+    wire(); wireClearance(); applyPreset('nova-c');
     st.t0 = Math.floor(Date.now() / 86400000) * 86400000; st.t = st.t0 + 3 * 24 * HOUR;
     $('start').value = toLocalInput(st.t0);
     wireStep4(); await wireMap();
@@ -1063,6 +1420,21 @@
     addScenario(snapshot(), st.site, 'example'); addScenario(Object.assign(snapshot(), { site: ex.id }), ex, 'example');
     drawFind(); wireGlobe(); wirePov();
     // A scenario in the page address (#s...) replaces the default view
-    if (/^#s[a-z2-7]+$/.test(location.hash)) { try { await applyScenario(decodeScenario(location.hash)); } catch (e) { $('shareOut').textContent = 'The scenario in the link could not be read.'; } }
+    const route = new URLSearchParams(location.search);
+    if (/^#s[a-z2-7]+$/.test(location.hash)) {
+      try { await applyScenario(decodeScenario(location.hash)); }
+      catch (e) { $('shareOut').textContent = 'The scenario in the link could not be read.'; }
+    } else if (['clearance', 'earthset'].includes(route.get('demo'))) {
+      Workspace.showView('lander');
+      await loadClearanceDemo();
+      if (route.get('demo') === 'earthset') {
+        $('tryChange').open = false;
+        setTime(Date.UTC(2026, 10, 18));
+        visitClearanceCheckpoint(-10);
+      }
+    } else if (['compare', 'find'].includes(route.get('view'))) {
+      Workspace.show(route.get('view'));
+    }
+    Copilot.init({ context: copilotContext, summary: context => context.split('\n')[0], run: action => copilotActions[action]() });
   })();
 })();
