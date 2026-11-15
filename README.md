@@ -2,6 +2,8 @@
 
 **Plan for light. Stay in contact.** Lunar Maps is a NASA Space Apps Challenge prototype for comparing lunar landing sites, arrival dates, and mission assumptions. It connects a 3D view of the Moon’s south pole to a practical question: **when can a lander collect sunlight and potentially communicate directly with Earth?**
 
+**[Launch Lunar Maps on Vercel ↗](https://lunarmaps.vercel.app/)**
+
 [Judging and verification guide](JUDGES.md) · [Mission workspace and design notes](MISSION-WORKSPACE.md)
 
 ## Why we’re building this
